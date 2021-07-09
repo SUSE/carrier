@@ -110,6 +110,7 @@ var CmdInstallIngress = &cobra.Command{
 func init() {
 	CmdInstall.Flags().BoolP("interactive", "i", false, "Whether to ask the user or not (default not)")
 	CmdInstall.Flags().BoolP("skip-default-org", "s", false, "Set this to skip creating a default org")
+	CmdInstall.Flags().StringP("ingress-ip", "l", "", "ip address to be assgined to ingress loadbalancer service")
 
 	CmdInstallIngress.Flags().BoolP("interactive", "i", false, "Whether to ask the user or not (default not)")
 
@@ -120,6 +121,20 @@ func init() {
 // Install command installs epinio on a configured cluster
 func Install(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
+
+	skipTraefik, err := cmd.Flags().GetBool("skip-traefik")
+	if err != nil {
+		return errors.Wrap(err, "could not read option --skip-traefik")
+	}
+
+	ingressIP, err := cmd.Flags().GetString("ingress-ip")
+	if err != nil {
+		return errors.Wrap(err, "could not read option --ingress-ip")
+	}
+
+	if ingressIP != "" && !skipTraefik {
+		return errors.New("cannot have --skip-traeifk and --ingress-ip together")
+	}
 
 	installClient, installCleanup, err := clients.NewInstallClient(cmd.Context(), cmd.Flags(), &NeededOptions)
 	defer func() {
