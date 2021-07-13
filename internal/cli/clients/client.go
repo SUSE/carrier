@@ -57,6 +57,8 @@ type EpinioClient struct {
 type PushParams struct {
 	Instances *int32
 	Services  []string
+	Docker    string
+	GitRev    string
 }
 
 func NewEpinioClient(ctx context.Context, flags *pflag.FlagSet) (*EpinioClient, error) {
@@ -1279,7 +1281,7 @@ func (c *EpinioClient) Orgs() error {
 // * (tail logs)
 // * wait for pipelinerun
 // * wait for app
-func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, params PushParams) error {
+func (c *EpinioClient) Push(ctx context.Context, name, source string, params PushParams) error {
 	appRef := models.AppRef{Name: name, Org: c.Config.Org}
 	log := c.Log.
 		WithName("Push").
@@ -1291,8 +1293,8 @@ func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, param
 	details := log.V(1) // NOTE: Increment of level, not absolute. Visible via TRACE_LEVEL=2
 
 	sourceToShow := source
-	if rev != "" {
-		sourceToShow = fmt.Sprintf("%s @ %s", sourceToShow, rev)
+	if params.GitRev != "" {
+		sourceToShow = fmt.Sprintf("%s @ %s", sourceToShow, params.GitRev)
 	}
 
 	msg := c.ui.Note().
@@ -1342,7 +1344,7 @@ func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, param
 
 	var gitRef *models.GitRef
 
-	if rev == "" {
+	if params.GitRev == "" && params.Docker == "" {
 		c.ui.Normal().Msg("Collecting the application sources ...")
 
 		tmpDir, tarball, err := collectSources(log, source)
@@ -1365,10 +1367,10 @@ func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, param
 		log.V(3).Info("upload response", "response", upload)
 
 		gitRef = upload.Git
-	} else {
+	} else if params.GitRev != "" {
 		gitRef = &models.GitRef{
 			URL:      source,
-			Revision: rev,
+			Revision: params.GitRev,
 		}
 	}
 
@@ -1384,37 +1386,46 @@ func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, param
 		Git:       gitRef,
 		Route:     route,
 	}
-	details.Info("staging code", "Git", gitRef.Revision)
+	if params.Docker != "" {
+		req.Docker = &params.Docker
+		details.Info("staging docker image", "", req.Docker)
+	} else {
+		details.Info("staging code", "Git", gitRef.Revision)
+	}
+
 	stage, err := c.stageCode(req)
 	if err != nil {
 		return err
 	}
 	log.V(3).Info("stage response", "response", stage)
 
-	details.Info("start tailing logs", "StageID", stage.Stage.ID)
+	// no need to tail logs, exit early
+	if params.Docker == "" {
+		details.Info("start tailing logs", "StageID", stage.Stage.ID)
 
-	// Buffered because the go routine may no longer be listening when we try
-	// to stop it. Stopping it should be a fire and forget. We have wg to wait
-	// for the routine to be gone.
-	stopChan := make(chan bool, 1)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	defer wg.Wait()
-	go func() {
-		defer wg.Done()
-		err := c.AppLogs(appRef.Name, stage.Stage.ID, true, stopChan)
+		// Buffered because the go routine may no longer be listening when we try
+		// to stop it. Stopping it should be a fire and forget. We have wg to wait
+		// for the routine to be gone.
+		stopChan := make(chan bool, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		defer wg.Wait()
+		go func() {
+			defer wg.Done()
+			err := c.AppLogs(appRef.Name, stage.Stage.ID, true, stopChan)
+			if err != nil {
+				c.ui.Problem().Msg(fmt.Sprintf("failed to tail logs: %s", err.Error()))
+			}
+		}()
+
+		details.Info("wait for pipelinerun", "StageID", stage.Stage.ID)
+		err = c.waitForPipelineRun(ctx, appRef, stage.Stage.ID)
 		if err != nil {
-			c.ui.Problem().Msg(fmt.Sprintf("failed to tail logs: %s", err.Error()))
+			stopChan <- true // Stop the printing go routine
+			return errors.Wrap(err, "waiting for staging failed")
 		}
-	}()
-
-	details.Info("wait for pipelinerun", "StageID", stage.Stage.ID)
-	err = c.waitForPipelineRun(ctx, appRef, stage.Stage.ID)
-	if err != nil {
 		stopChan <- true // Stop the printing go routine
-		return errors.Wrap(err, "waiting for staging failed")
 	}
-	stopChan <- true // Stop the printing go routine
 
 	details.Info("wait for app", "StageID", stage.Stage.ID)
 	err = c.waitForApp(ctx, appRef, stage.Stage.ID)

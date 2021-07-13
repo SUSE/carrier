@@ -58,6 +58,7 @@ type StageRequest struct {
 	App       AppRef  `json:"app,omitempty"`
 	Instances *int32  `json:"instances,omitempty"`
 	Git       *GitRef `json:"git,omitempty"`
+	Docker    *string `json:"docker,omitempty"`
 	Route     string  `json:"route,omitempty"`
 }
 

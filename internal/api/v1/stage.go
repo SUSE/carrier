@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,10 +17,13 @@ import (
 	v1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/client/clientset/versioned"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	k8s "k8s.io/client-go/kubernetes"
 
 	"github.com/epinio/epinio/deployments"
@@ -43,6 +47,7 @@ type stageParam struct {
 	Instances   int32
 	Owner       metav1.OwnerReference
 	Environment models.EnvVariableList
+	Docker      string
 }
 
 // GitURL returns the git URL by combining the server with the org and name
@@ -165,20 +170,51 @@ func (hc ApplicationsController) Stage(w http.ResponseWriter, r *http.Request) A
 	if err != nil {
 		return InternalError(err)
 	}
-	var deploymentImageURL string
-	registryURL := fmt.Sprintf("%s.%s/%s", deployments.RegistryDeploymentID, mainDomain, "apps")
-	// If it's a local deployment the cert is self-signed so we use the NodePort
-	// (without TLS) as the Deployment image. This way kube won't complain.
-	if !strings.Contains(mainDomain, "omg.howdoi.website") {
-		deploymentImageURL = registryURL
-	} else {
-		deploymentImageURL = gitea.LocalRegistry
-	}
 
-	pr := newPipelineRun(uid, params, mainDomain, registryURL, deploymentImageURL)
-	o, err := client.Create(ctx, pr, metav1.CreateOptions{})
-	if err != nil {
-		return InternalError(err, fmt.Sprintf("failed to create pipeline run: %#v", o))
+	if req.Docker == nil {
+		var deploymentImageURL string
+		registryURL := fmt.Sprintf("%s.%s/%s", deployments.RegistryDeploymentID, mainDomain, "apps")
+		// If it's a local deployment the cert is self-signed so we use the NodePort
+		// (without TLS) as the Deployment image. This way kube won't complain.
+		if !strings.Contains(mainDomain, "omg.howdoi.website") {
+			deploymentImageURL = registryURL
+		} else {
+			deploymentImageURL = gitea.LocalRegistry
+		}
+
+		pr := newPipelineRun(uid, params, mainDomain, registryURL, deploymentImageURL)
+		o, err := client.Create(ctx, pr, metav1.CreateOptions{})
+		if err != nil {
+			return InternalError(err, fmt.Sprintf("failed to create pipeline run: %#v", o))
+		}
+	} else {
+
+		obj, err := newDeployment(uid, params, mainDomain)
+		if err != nil {
+			return InternalError(err)
+		}
+		obj.SetOwnerReferences([]metav1.OwnerReference{owner})
+		if _, err := cluster.Kubectl.AppsV1().Deployments(params.Org).Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+			return InternalError(err)
+		}
+
+		svc, err := newService(uid, params, mainDomain)
+		if err != nil {
+			return InternalError(err)
+		}
+		svc.SetOwnerReferences([]metav1.OwnerReference{owner})
+		if _, err := cluster.Kubectl.CoreV1().Services(params.Org).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
+			return InternalError(err)
+		}
+
+		ing, err := newIngress(uid, params, mainDomain)
+		if err != nil {
+			return InternalError(err)
+		}
+		ing.SetOwnerReferences([]metav1.OwnerReference{owner})
+		if _, err := cluster.Kubectl.NetworkingV1().Ingresses(params.Org).Create(ctx, ing, metav1.CreateOptions{}); err != nil {
+			return InternalError(err)
+		}
 	}
 
 	err = auth.CreateCertificate(ctx, cluster, params.Name, params.Org, mainDomain, &owner)
@@ -212,16 +248,6 @@ func existingReplica(ctx context.Context, client *k8s.Clientset, app models.AppR
 func newPipelineRun(uid string, app stageParam, mainDomain, registryURL, deploymentImageURL string) *v1beta1.PipelineRun {
 	str := v1beta1.NewArrayOrString
 
-	assignments := []string{
-		fmt.Sprintf(`{ "name": "%s", "value": "%s"}`, `PORT`, `8080`),
-	}
-	for _, ev := range app.Environment {
-		assignments = append(assignments,
-			fmt.Sprintf(`{ "name": "%s", "valueFrom": { "secretKeyRef": {"key":"%s","name":"%s"}}}`,
-				ev.Name, ev.Name, application.EnvSecret(app.AppRef)))
-	}
-	environment := `[` + strings.Join(assignments, ",") + `]`
-
 	return &v1beta1.PipelineRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: uid,
@@ -249,7 +275,7 @@ func newPipelineRun(uid string, app stageParam, mainDomain, registryURL, deploym
 				{Name: "OWNER_NAME", Value: *str(app.Owner.Name)},
 				{Name: "OWNER_KIND", Value: *str(app.Owner.Kind)},
 				{Name: "OWNER_UID", Value: *str(string(app.Owner.UID))},
-				{Name: "ENVIRONMENT", Value: *str(environment)},
+				{Name: "ENVIRONMENT", Value: *str(app.Environment.ToString(app.Name))},
 			},
 			Workspaces: []v1beta1.WorkspaceBinding{
 				{
@@ -278,4 +304,132 @@ func newPipelineRun(uid string, app stageParam, mainDomain, registryURL, deploym
 			},
 		},
 	}
+}
+
+func newDeployment(uid string, app stageParam, mainDomain string) (*appsv1.Deployment, error) {
+	data := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "%[1]s"
+  labels:
+    app.kubernetes.io/name: "%[1]s"
+    app.kubernetes.io/part-of: "%[2]s"
+    app.kubernetes.io/component: application
+    app.kubernetes.io/managed-by: epinio
+spec:
+  replicas: %[3]d
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "%[1]s"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "%[1]s"
+        epinio.suse.org/stage-id: "%[4]s"
+        app.kubernetes.io/part-of: "%[2]s"
+        app.kubernetes.io/component: application
+        app.kubernetes.io/managed-by: epinio
+      annotations:
+        app.kubernetes.io/name: "%[1]s"
+    spec:
+      serviceAccountName: "%[2]s"
+      automountServiceAccountToken: false
+      containers:
+      - name: "%[1]s"
+        image: "%[5]s"
+        ports:
+        - containerPort: 8080
+        env: %[6]s
+	`,
+		app.Name,
+		app.Org,
+		app.Instances,
+		app.Stage.ID,
+		app.Docker,
+		app.Environment.ToString(app.Name))
+
+	obj := &appsv1.Deployment{}
+	dec := yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(data)), 1000)
+	if err := dec.Decode(obj); err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
+func newService(uid string, app stageParam, mainDomain string) (*corev1.Service, error) {
+	data := fmt.Sprintf(`apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  labels:
+    app.kubernetes.io/component: application
+    app.kubernetes.io/managed-by: epinio
+    app.kubernetes.io/name: %[1]s
+    app.kubernetes.io/part-of: %[2]s
+  name: %[1]s
+  namespace: %[2]s
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app.kubernetes.io/component: "application"
+    app.kubernetes.io/name: "%[1]s"
+  type: ClusterIP
+	  `, app.Name, app.Org)
+
+	obj := &corev1.Service{}
+	dec := yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(data)), 1000)
+	if err := dec.Decode(obj); err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
+func newIngress(uid string, app stageParam, mainDomain string) (*networkingv1.Ingress, error) {
+	data := fmt.Sprintf(`apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    kubernetes.io/ingress.class: traefik
+  labels:
+    app.kubernetes.io/component: application
+    app.kubernetes.io/managed-by: epinio
+    app.kubernetes.io/name: %[1]s
+    app.kubernetes.io/part-of: %[2]s
+  name: %[1]s
+  namespace: %[2]s
+spec:
+  rules:
+  - host: %[3]s
+    http:
+      paths:
+      - backend:
+    service:
+      name: %[1]s
+      port:
+        number: 8080
+  path: /
+  pathType: ImplementationSpecific
+  tls:
+  - hosts:
+    - %[3]s
+    secretName: %[1]s-tls
+	    `, app.Name, app.Org, app.Route)
+
+	obj := &networkingv1.Ingress{}
+	dec := yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(data)), 1000)
+	if err := dec.Decode(obj); err != nil {
+		return nil, err
+	}
+
+	return obj, nil
 }

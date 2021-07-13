@@ -84,3 +84,8 @@ type GitRef struct {
 	Revision string `json:"revision"`
 	URL      string `json:"url"`
 }
+
+// DockerRef describes a git commit in a repo
+type DockerRef struct {
+	URL string `json:"url"`
+}
