@@ -89,6 +89,10 @@ func (hc ApplicationsController) Stage(w http.ResponseWriter, r *http.Request) A
 		return NewBadRequest("instances param should be integer equal or greater than zero")
 	}
 
+	if req.BuilderImage == "" {
+		return NewBadRequest("builder image cannot be empty")
+	}
+
 	cluster, err := kubernetes.GetCluster(ctx)
 	if err != nil {
 		return InternalError(err, "failed to get access to a kube client")
@@ -174,7 +178,7 @@ func (hc ApplicationsController) Stage(w http.ResponseWriter, r *http.Request) A
 		deploymentImageURL = registryURL
 	}
 
-	pr := newPipelineRun(uid, params, mainDomain, registryURL, deploymentImageURL)
+	pr := newPipelineRun(uid, params, mainDomain, registryURL, deploymentImageURL, req.BuilderImage)
 	o, err := client.Create(ctx, pr, metav1.CreateOptions{})
 	if err != nil {
 		return InternalError(err, fmt.Sprintf("failed to create pipeline run: %#v", o))
@@ -217,7 +221,7 @@ func existingReplica(ctx context.Context, client *k8s.Clientset, app models.AppR
 	return *result.Spec.Replicas, nil
 }
 
-func newPipelineRun(uid string, app stageParam, mainDomain, registryURL, deploymentImageURL string) *v1beta1.PipelineRun {
+func newPipelineRun(uid string, app stageParam, mainDomain, registryURL, deploymentImageURL, builderImage string) *v1beta1.PipelineRun {
 	str := v1beta1.NewArrayOrString
 
 	stagingVariables := []string{}
@@ -255,6 +259,7 @@ func newPipelineRun(uid string, app stageParam, mainDomain, registryURL, deploym
 				{Name: "APP_IMAGE", Value: *str(app.ImageURL(registryURL))},
 				{Name: "DEPLOYMENT_IMAGE", Value: *str(app.ImageURL(deploymentImageURL))},
 				{Name: "STAGE_ID", Value: *str(uid)},
+				{Name: "BUILDER_IMAGE", Value: *str(builderImage)},
 				{Name: "OWNER_APIVERSION", Value: *str(app.Owner.APIVersion)},
 				{Name: "OWNER_NAME", Value: *str(app.Owner.Name)},
 				{Name: "OWNER_KIND", Value: *str(app.Owner.Kind)},

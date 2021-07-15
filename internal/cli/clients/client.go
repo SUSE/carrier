@@ -52,8 +52,12 @@ type EpinioClient struct {
 }
 
 type PushParams struct {
-	Instances *int32
-	Services  []string
+	BuilderImage string
+	GitRevision  string
+	Instances    *int32
+	Name         string
+	Path         string
+	Services     []string
 }
 
 func NewEpinioClient(ctx context.Context, flags *pflag.FlagSet) (*EpinioClient, error) {
@@ -1261,7 +1265,11 @@ func (c *EpinioClient) Orgs() error {
 // * (tail logs)
 // * wait for pipelinerun
 // * wait for app
-func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, params PushParams) error {
+func (c *EpinioClient) Push(ctx context.Context, params PushParams) error {
+	rev := params.GitRevision
+	name := params.Name
+	source := params.Path
+
 	appRef := models.AppRef{Name: name, Org: c.Config.Org}
 	log := c.Log.
 		WithName("Push").
@@ -1361,10 +1369,11 @@ func (c *EpinioClient) Push(ctx context.Context, name, rev, source string, param
 		return errors.Wrap(err, "unable to determine default app route")
 	}
 	req := models.StageRequest{
-		App:       appRef,
-		Instances: params.Instances,
-		Git:       gitRef,
-		Route:     route,
+		App:          appRef,
+		Instances:    params.Instances,
+		Git:          gitRef,
+		Route:        route,
+		BuilderImage: params.BuilderImage,
 	}
 	details.Info("staging code", "Git", gitRef.Revision)
 	stage, err := c.stageCode(req)
