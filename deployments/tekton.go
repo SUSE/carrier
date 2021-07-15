@@ -484,6 +484,7 @@ func (k Tekton) createClusterRegistryCredsSecret(ctx context.Context, c *kuberne
 // in order to avoid pulling it the first time we an application is staged.
 // TODO: This doesn't work in a multi-node cluster because it will only pull
 // the image on one node. Maybe we could use a dummy daemonset for that.
+// This does not help with custom builder images.
 func (k Tekton) warmupBuilder(ctx context.Context, c *kubernetes.Cluster) error {
 	client, err := typedbatchv1.NewForConfig(c.RestConfig)
 	if err != nil {
@@ -517,7 +518,7 @@ func (k Tekton) warmupBuilder(ctx context.Context, c *kubernetes.Cluster) error 
 						Containers: []corev1.Container{
 							{
 								Name:    "warmup",
-								Image:   "paketobuildpacks/builder:full", // TODO: DRY this
+								Image:   "paketobuildpacks/builder:full",
 								Command: []string{"/bin/ls"},
 							}},
 						RestartPolicy: "Never",
