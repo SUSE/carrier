@@ -129,7 +129,7 @@ func copySecret(ctx context.Context, secretName, originOrg, targetOrg string, ku
 }
 
 func createServiceAccount(ctx context.Context, kubeClient *kubernetes.Cluster, targetOrg string) error {
-	automountServiceAccountToken := false
+	automountServiceAccountToken := true
 	_, err := kubeClient.Kubectl.CoreV1().ServiceAccounts(targetOrg).Create(
 		ctx,
 		&corev1.ServiceAccount{
