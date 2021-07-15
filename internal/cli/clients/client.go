@@ -36,7 +36,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
-	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -56,7 +55,7 @@ type PushParams struct {
 	Services  []string
 }
 
-func NewEpinioClient(ctx context.Context, flags *pflag.FlagSet) (*EpinioClient, error) {
+func NewEpinioClient(ctx context.Context) (*EpinioClient, error) {
 	configConfig, err := config.Load()
 	if err != nil {
 		return nil, err

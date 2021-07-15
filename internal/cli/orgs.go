@@ -42,7 +42,7 @@ var CmdOrgList = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
 		}
@@ -64,7 +64,7 @@ var CmdOrgCreate = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
 		}
@@ -100,7 +100,7 @@ var CmdOrgDelete = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
 		}

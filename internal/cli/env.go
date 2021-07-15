@@ -34,7 +34,7 @@ var CmdEnvList = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
 		}
@@ -51,7 +51,7 @@ var CmdEnvList = &cobra.Command{
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		app, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		app, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -71,7 +71,7 @@ var CmdEnvSet = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
@@ -91,7 +91,7 @@ var CmdEnvSet = &cobra.Command{
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		app, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		app, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -111,7 +111,7 @@ var CmdEnvShow = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
@@ -129,7 +129,7 @@ var CmdEnvShow = &cobra.Command{
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		app, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		app, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -156,7 +156,7 @@ var CmdEnvUnset = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
 
-		client, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		client, err := clients.NewEpinioClient(cmd.Context())
 
 		if err != nil {
 			return errors.Wrap(err, "error initializing cli")
@@ -176,7 +176,7 @@ var CmdEnvUnset = &cobra.Command{
 
 		// TODO: arg 1: EV match
 
-		app, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+		app, err := clients.NewEpinioClient(cmd.Context())
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}

@@ -13,7 +13,7 @@ type InfoController struct {
 
 func (hc InfoController) Index(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	client, err := clients.NewEpinioClient(ctx, nil)
+	client, err := clients.NewEpinioClient(ctx)
 	if handleError(w, err, 500) {
 		return
 	}

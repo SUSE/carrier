@@ -159,7 +159,7 @@ func Install(cmd *cobra.Command, args []string) error {
 
 	// Installation complete. Run `org create`, and `target`.
 
-	epinioClient, err := clients.NewEpinioClient(cmd.Context(), cmd.Flags())
+	epinioClient, err := clients.NewEpinioClient(cmd.Context())
 	if err != nil {
 		return errors.Wrap(err, "error initializing cli")
 	}
